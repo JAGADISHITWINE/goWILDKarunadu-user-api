@@ -22,7 +22,7 @@ const apiLimiter = rateLimit({
 app.use(express.json({ limit: '1mb' })); // Middleware to parse JSON request bodies
 
 // CORS - restrict via env variable (comma-separated), fallback to localhost dev origins
-const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:4200,http://localhost:8100')
+const allowedOrigins = (process.env.CORS_ORIGINS || 'http://localhost:4200,http://localhost:8100,https://gowildkarunadu.vercel.app')
   .split(',')
   .map(s => s.trim())
   .filter(Boolean);
