@@ -58,7 +58,40 @@ const ALIAS_MAP = {
   'add-ons': 'trekAddons',
   'review-status': 'reviewStatus',
   'reviewstatus': 'reviewStatus',
+  'banks': 'netBankingBanks',
+  'bank-list': 'netBankingBanks',
+  'netbanking': 'netBankingBanks',
+  'netbanking-banks': 'netBankingBanks',
+  'wallets': 'paymentWallets',
+  'payment-wallets': 'paymentWallets',
+  'notification-type': 'notificationType',
+  'notification-types': 'notificationType',
+  'notification-target': 'notificationTarget',
+  'notification-targets': 'notificationTarget',
+  'sort-options': 'trekSortOptions',
+  'trek-sort-options': 'trekSortOptions',
+  'faq-categories': 'faqCategory',
+  'faq-category': 'faqCategory',
+  'general-status': 'generalStatus',
+  'page-sizes': 'dashboardRows',
+  'trek-filters': 'trekCategory',
 };
+
+// In-Memory Dropdown Cache with 15-minute TTL
+const CACHE_TTL_MS = 15 * 60 * 1000;
+let dropdownCache = {
+  all: null,
+  allTimestamp: 0,
+  byType: new Map(),
+};
+
+function invalidateDropdownCache() {
+  dropdownCache = {
+    all: null,
+    allTimestamp: 0,
+    byType: new Map(),
+  };
+}
 
 /**
  * GET /api/auth/meta/dropdowns
@@ -66,17 +99,22 @@ const ALIAS_MAP = {
  */
 async function getAllDropdowns(req, res) {
   try {
+    const now = Date.now();
+    if (dropdownCache.all && (now - dropdownCache.allTimestamp < CACHE_TTL_MS)) {
+      return sendEncrypted(res, dropdownCache.all);
+    }
+
     const [rows] = await db.query(`
       SELECT 
         g.group_key,
-        g.group_name,
+        g.label AS group_name,
         o.option_value AS value,
-        o.option_label AS label,
-        o.display_order
+        o.label AS label,
+        o.sort_order AS display_order
       FROM dropdown_groups g
       JOIN dropdown_options o ON o.group_id = g.id
-      WHERE g.is_active = 1 AND o.is_active = 1
-      ORDER BY g.group_key ASC, o.display_order ASC
+      WHERE g.status = 'active' AND o.status = 'active'
+      ORDER BY g.sort_order ASC, o.sort_order ASC
     `).catch(() => [[]]);
 
     const result = {};
@@ -89,6 +127,9 @@ async function getAllDropdowns(req, res) {
         label: row.label,
       });
     }
+
+    dropdownCache.all = result;
+    dropdownCache.allTimestamp = now;
 
     return sendEncrypted(res, result);
   } catch (error) {
@@ -103,24 +144,33 @@ async function getAllDropdowns(req, res) {
 async function getDropdownByType(req, res) {
   const rawType = String(req.params.type || '').trim().toLowerCase();
   const canonicalKey = ALIAS_MAP[rawType] || rawType;
+  const now = Date.now();
+  const cacheKey = canonicalKey.toLowerCase();
+
+  const cached = dropdownCache.byType.get(cacheKey);
+  if (cached && (now - cached.timestamp < CACHE_TTL_MS)) {
+    return sendEncrypted(res, cached.data);
+  }
 
   try {
     // 1. Try querying DB dropdown_groups & dropdown_options
     const [groupRows] = await db.query(
-      `SELECT o.option_value AS value, o.option_label AS label
+      `SELECT o.option_value AS value, o.label AS label
        FROM dropdown_groups g
        JOIN dropdown_options o ON o.group_id = g.id
-       WHERE (LOWER(g.group_key) = ? OR LOWER(g.group_key) = ? OR LOWER(g.group_name) = ?)
-         AND g.is_active = 1 AND o.is_active = 1
-       ORDER BY o.display_order ASC`,
+       WHERE (LOWER(g.group_key) = ? OR LOWER(g.group_key) = ? OR LOWER(g.label) = ?)
+         AND g.status = 'active' AND o.status = 'active'
+       ORDER BY o.sort_order ASC`,
       [canonicalKey.toLowerCase(), rawType, rawType]
     ).catch(() => [[]]);
 
     if (groupRows.length > 0) {
-      return sendEncrypted(res, {
+      const responseData = {
         type: rawType,
         options: groupRows.map(r => ({ value: r.value, label: r.label }))
-      });
+      };
+      dropdownCache.byType.set(cacheKey, { data: responseData, timestamp: now });
+      return sendEncrypted(res, responseData);
     }
 
     // 2. Specialized fallbacks for blog-categories and dynamic treks tables
@@ -280,7 +330,7 @@ async function getSiteSettings(req, res) {
     const supportPhoneRaw = map.support_phone_raw || supportPhone.replace(/[^0-9+]/g, '');
     const whatsappNumber = map.whatsapp_number || '+91 98765 43210';
     const whatsappNumberRaw = map.whatsapp_number_raw || whatsappNumber.replace(/[^0-9]/g, '');
-    const supportEmail = map.support_email || 'info@gowildkarunadu.com';
+    const supportEmail = map.support_email || 'info@gowildkarunadu.online';
     const contactLocation = map.contact_location || 'Bengaluru, Karnataka';
     const legalName = map.legal_name || 'goWILD Karunadu Eco-Adventures Pvt Ltd';
     const gstin = map.gstin || '29AAGCW9123K1Z8';
@@ -323,11 +373,19 @@ async function getSiteSettings(req, res) {
   }
 }
 
+function clearDropdownCacheEndpoint(req, res) {
+  invalidateDropdownCache();
+  return res.json({ success: true, message: 'Dropdown cache cleared' });
+}
+
 module.exports = {
   getAllDropdowns,
   getDropdownByType,
   getGearRentals,
   getTrailAdvisories,
   getSiteSettings,
+  invalidateDropdownCache,
+  clearDropdownCacheEndpoint,
 };
+
 

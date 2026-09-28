@@ -53,6 +53,9 @@ const defaultAllowedOrigins = [
   'https://gowildkarunadu.online',
   'https://www.gowildkarunadu.online',
   'https://admin.gowildkarunadu.online',
+  'https://gowildkarunadu.com',
+  'https://www.gowildkarunadu.com',
+  'https://admin.gowildkarunadu.com',
 ];
 
 const allowedOrigins = Array.from(

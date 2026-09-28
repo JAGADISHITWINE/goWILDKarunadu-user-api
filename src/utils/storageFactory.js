@@ -63,8 +63,9 @@ async function saveProcessedFile({ buffer, localDir, s3Prefix, filenameBase }) {
         ContentType: 'image/webp',
       })
     );
-    const storedUrl = process.env.CLOUDFRONT_URL
-      ? `${process.env.CLOUDFRONT_URL.replace(/\/$/, '')}/${key}`
+    const customDomain = (process.env.CUSTOM_CDN_URL || process.env.CLOUDFRONT_URL || process.env.S3_CUSTOM_DOMAIN || '').trim().replace(/\/+$/, '');
+    const storedUrl = customDomain
+      ? `${customDomain}/${key}`
       : `https://${process.env.S3_BUCKET || process.env.AWS_S3_BUCKET}.s3.amazonaws.com/${key}`;
     return { filename, storedUrl, key };
   }

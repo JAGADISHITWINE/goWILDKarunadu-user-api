@@ -564,7 +564,30 @@ async function listStaticPages({ includeInactive = true } = {}) {
      ORDER BY sp.sort_order ASC, sp.title ASC`
   );
 
-  return rows.map(mapPageRow);
+  const mappedList = rows.map(mapPageRow);
+  const liveStats = await getLiveAboutStats();
+
+  for (const page of mappedList) {
+    if (page && page.pageKey === 'about-us') {
+      let parsed = null;
+      try {
+        parsed = JSON.parse(page.content);
+      } catch {
+        parsed = null;
+      }
+
+      page.aboutData = {
+        hero: parsed?.hero || DEFAULT_ABOUT_DATA.hero,
+        story: parsed?.story || DEFAULT_ABOUT_DATA.story,
+        stats: liveStats || parsed?.stats || DEFAULT_ABOUT_DATA.stats,
+        values: parsed?.values?.length ? parsed.values : DEFAULT_ABOUT_DATA.values,
+        team: parsed?.team?.length ? parsed.team : DEFAULT_ABOUT_DATA.team,
+        safetyItems: parsed?.safetyItems?.length ? parsed.safetyItems : DEFAULT_ABOUT_DATA.safetyItems,
+      };
+    }
+  }
+
+  return mappedList;
 }
 
 async function getStaticPageByKey(pageKey, { includeInactive = true } = {}) {
@@ -620,6 +643,15 @@ async function updateStaticPage(pageKey, payload = {}, adminId = null) {
 
   const existing = await getStaticPageByKey(normalizedKey, { includeInactive: true });
   const fallback = DEFAULT_PAGE_MAP.get(normalizedKey) || {};
+
+  const normalizedPoints = Array.isArray(payload.points) && payload.points.length > 0
+    ? payload.points
+        .map((point) => ({
+          title: normalizeText(point?.title),
+          body: normalizeText(point?.body),
+        }))
+        .filter((point) => point.title || point.body)
+    : null;
 
   const finalTitle = payload.title !== undefined
     ? normalizeText(payload.title)

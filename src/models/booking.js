@@ -165,6 +165,29 @@ async function createBooking(bookingData) {
     // Start transaction
     await conn.beginTransaction();
 
+    // 0. Concurrency Locking: Lock the batch row exclusively using FOR UPDATE to prevent race conditions and overbooking
+    const [lockedBatchRows] = await conn.execute(
+      `SELECT id, available_slots, booked_slots, max_participants 
+       FROM trek_batches 
+       WHERE id = ? 
+       FOR UPDATE`,
+      [bookingData.batchId]
+    );
+
+    if (!lockedBatchRows || lockedBatchRows.length === 0) {
+      await conn.rollback();
+      throw new Error("INVALID_BATCH_ID");
+    }
+
+    const lockedBatch = lockedBatchRows[0];
+    const availableSlots = Number(lockedBatch.available_slots || 0);
+    const requestedSlots = Number(bookingData.participants || 1);
+
+    if (availableSlots < requestedSlots) {
+      await conn.rollback();
+      throw new Error("INSUFFICIENT_SLOTS");
+    }
+
     // 1. Block duplicate/simultaneous bookings for the same trek if user already has an active (non-completed, non-cancelled) booking
     const [activeBookings] = await conn.execute(
       `

@@ -41,6 +41,7 @@ router.post('/community/carpools', communityController.createCarpoolController);
 
 // ========== META DROPDOWNS & OPERATIONS ==========
 router.get('/meta/dropdowns', metaController.getAllDropdowns);
+router.all('/meta/clear-cache', metaController.clearDropdownCacheEndpoint);
 router.get('/meta/dropdowns/:type', metaController.getDropdownByType);
 router.get('/meta/gear-rentals', metaController.getGearRentals);
 router.get('/meta/trail-advisories', metaController.getTrailAdvisories);

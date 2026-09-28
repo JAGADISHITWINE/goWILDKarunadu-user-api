@@ -110,89 +110,136 @@ async function verifyPayment(req, res) {
   }
 }
 
+const emailService = require('../service/emailService');
+
 // POST /api/auth/payments/webhook
 async function webhookHandler(req, res) {
+  let conn;
   try {
     const signature = req.headers['x-razorpay-signature'];
     const secret = process.env.RAZORPAY_WEBHOOK_SECRET || process.env.RAZORPAY_KEY_SECRET;
     const payload = req.rawBody || JSON.stringify(req.body || {});
-        const expected = crypto.createHmac('sha256', secret || '').update(payload).digest('hex');
+    const expected = crypto.createHmac('sha256', secret || '').update(payload).digest('hex');
 
-        if (!signature || expected !== signature) {
-          return res.status(400).send('Invalid signature');
-        }
+    if (!signature || expected !== signature) {
+      return res.status(400).send('Invalid signature');
+    }
 
-        // Idempotency: compute payload hash and skip if already processed
-        const payloadHash = crypto.createHash('sha256').update(payload).digest('hex');
-        try {
-          await conn.execute(`
-            CREATE TABLE IF NOT EXISTS webhook_events (
-              id CHAR(36) NOT NULL,
-              event_id VARCHAR(255) NOT NULL,
-              payload_hash VARCHAR(128) NOT NULL,
-              created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-              PRIMARY KEY (id),
-              UNIQUE KEY uq_event_id (event_id),
-              UNIQUE KEY uq_payload_hash (payload_hash)
-            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-          `);
-
-          const eventId = (req.body && req.body.id) || (req.headers['x-razorpay-event-id'] || null);
-          if (eventId) {
-            const [existing] = await conn.execute(`SELECT id FROM webhook_events WHERE event_id = ? LIMIT 1`, [eventId]);
-            if (Array.isArray(existing) && existing.length > 0) {
-              // already processed
-              conn.release();
-              return res.json({ status: 'ok', reason: 'duplicate' });
-            }
-          }
-
-          const [existingHash] = await conn.execute(`SELECT id FROM webhook_events WHERE payload_hash = ? LIMIT 1`, [payloadHash]);
-          if (Array.isArray(existingHash) && existingHash.length > 0) {
-            conn.release();
-            return res.json({ status: 'ok', reason: 'duplicate' });
-          }
-
-          // Insert a record to mark this payload as processed (best-effort)
-          await conn.execute(`INSERT INTO webhook_events (id, event_id, payload_hash) VALUES (?, ?, ?)`, [crypto.randomUUID(), eventId || null, payloadHash]);
-        } catch (err) {
-          // continue processing — do not block on idempotency failure
-        }
-
-    const event = req.body;
-    const conn = await db.getConnection();
+    conn = await db.getConnection();
     await ensurePaymentsTable(conn);
 
-    // Handle payment captured / failed events
-      if (event.event === 'payment.captured' && event.payload?.payment?.entity) {
-      const p = event.payload.payment.entity;
-      await conn.execute(`UPDATE payments SET payment_id = ?, status = 'paid', updated_at = NOW() WHERE order_id = ?`, [p.id, p.order_id]);
-      // update admin-friendly fields
-      try {
-        const amountR = p.amount ? Number(p.amount) / 100 : null;
-        await conn.execute(`UPDATE payments SET payment_method = ?, transaction_id = ?, amount = IFNULL(?, amount) WHERE order_id = ?`, ['razorpay', p.id, amountR, p.order_id]);
-      } catch (err) {
-      }
-      // Try to mark related booking as paid if payments row links to a booking
-      try {
-        const [rows] = await conn.execute(`SELECT booking_id FROM payments WHERE order_id = ? LIMIT 1`, [p.order_id]);
-        if (Array.isArray(rows) && rows.length > 0 && rows[0].booking_id) {
-          const bookingId = rows[0].booking_id;
-          await conn.execute(`UPDATE bookings SET payment_status = 'paid', booking_status = 'confirmed' WHERE id = ?`, [bookingId]);
+    // Idempotency: compute payload hash and skip if already processed
+    const payloadHash = crypto.createHash('sha256').update(payload).digest('hex');
+    try {
+      await conn.execute(`
+        CREATE TABLE IF NOT EXISTS webhook_events (
+          id CHAR(36) NOT NULL,
+          event_id VARCHAR(255) NOT NULL,
+          payload_hash VARCHAR(128) NOT NULL,
+          created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (id),
+          UNIQUE KEY uq_event_id (event_id),
+          UNIQUE KEY uq_payload_hash (payload_hash)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+      `);
+
+      const eventId = (req.body && req.body.id) || (req.headers['x-razorpay-event-id'] || null);
+      if (eventId) {
+        const [existing] = await conn.execute(`SELECT id FROM webhook_events WHERE event_id = ? LIMIT 1`, [eventId]);
+        if (Array.isArray(existing) && existing.length > 0) {
+          return res.json({ status: 'ok', reason: 'duplicate' });
         }
-      } catch (err) {
+      }
+
+      const [existingHash] = await conn.execute(`SELECT id FROM webhook_events WHERE payload_hash = ? LIMIT 1`, [payloadHash]);
+      if (Array.isArray(existingHash) && existingHash.length > 0) {
+        return res.json({ status: 'ok', reason: 'duplicate' });
+      }
+
+      await conn.execute(
+        `INSERT INTO webhook_events (id, event_id, payload_hash) VALUES (?, ?, ?)`,
+        [crypto.randomUUID ? crypto.randomUUID() : createUuid(), eventId || `evt_${Date.now()}`, payloadHash]
+      );
+    } catch (err) {
+      // Continue processing if idempotency table check fails
+    }
+
+    const event = req.body || {};
+    const eventType = String(event.event || '');
+
+    // Handle payment captured or order paid events
+    if ((eventType === 'payment.captured' || eventType === 'order.paid') && event.payload) {
+      const p = event.payload.payment?.entity || event.payload.order?.entity || {};
+      const orderId = p.order_id || p.id;
+      const paymentId = p.id;
+      const amountRupees = p.amount ? Number(p.amount) / 100 : null;
+
+      if (orderId) {
+        await conn.execute(
+          `UPDATE payments SET payment_id = IFNULL(?, payment_id), status = 'paid', payment_method = 'razorpay', transaction_id = IFNULL(?, transaction_id), amount = IFNULL(?, amount), updated_at = NOW() WHERE order_id = ?`,
+          [paymentId, paymentId, amountRupees, orderId]
+        ).catch(() => {});
+      }
+
+      // Identify booking
+      let bookingId = p.notes?.booking_id || p.notes?.bookingId || null;
+      if (!bookingId && orderId) {
+        const [rows] = await conn.execute(`SELECT booking_id FROM payments WHERE order_id = ? LIMIT 1`, [orderId]);
+        if (Array.isArray(rows) && rows.length > 0 && rows[0].booking_id) {
+          bookingId = rows[0].booking_id;
+        }
+      }
+
+      if (bookingId) {
+        // Mark booking confirmed and paid
+        await conn.execute(
+          `UPDATE bookings 
+           SET payment_status = 'paid', 
+               booking_status = 'confirmed',
+               amount_paid = IFNULL(?, total_amount),
+               balance_due = 0
+           WHERE id = ?`,
+          [amountRupees, bookingId]
+        );
+
+        // Fetch booking to send confirmation email if not sent yet
+        const [bkRows] = await conn.execute(
+          `SELECT b.*, tb.start_date, tb.end_date, tb.duration, t.name as trek_name, t.location
+           FROM bookings b
+           LEFT JOIN trek_batches tb ON b.batch_id = tb.id
+           LEFT JOIN treks t ON b.trek_id = t.id
+           WHERE b.id = ? LIMIT 1`,
+          [bookingId]
+        );
+
+        if (bkRows.length > 0 && !bkRows[0].confirmation_sent) {
+          const bookingData = bkRows[0];
+          const [pRows] = await conn.execute(
+            `SELECT name, age, gender, id_type, id_number, phone, medical_info, is_primary_contact 
+             FROM booking_participants WHERE booking_id = ?`,
+            [bookingId]
+          );
+          bookingData.participants_details = pRows;
+
+          emailService.sendBookingConfirmation(bookingData)
+            .then(() => {
+              conn.execute(`UPDATE bookings SET confirmation_sent = 1 WHERE id = ?`, [bookingId]).catch(() => {});
+            })
+            .catch(() => {});
+        }
       }
     }
 
-    if (event.event === 'payment.failed' && event.payload?.payment?.entity) {
+    if (eventType === 'payment.failed' && event.payload?.payment?.entity) {
       const p = event.payload.payment.entity;
       await conn.execute(`UPDATE payments SET status = 'failed', updated_at = NOW() WHERE order_id = ?`, [p.order_id]);
     }
 
-    conn.release();
     return res.json({ status: 'ok' });
   } catch (error) {
     return res.status(500).send('error');
+  } finally {
+    if (conn) conn.release();
   }
 }
 

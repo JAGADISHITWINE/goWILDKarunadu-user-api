@@ -14,8 +14,11 @@ async function getBrandSettings() {
       brandSubtitle: map.brand_subtitle || "ಕರುನಾಡು",
       brandTagline: map.brand_tagline || "Explore • Trek • Experience",
       supportPhone: map.support_phone || "+91 98765 43210",
-      supportEmail: map.support_email || "info@gowildkarunadu.com",
-      legalName: map.legal_name || "goWILD Karunadu Eco-Adventures Pvt Ltd"
+      supportEmail: map.support_email || "info@gowildkarunadu.online",
+      whatsappNumber: map.whatsapp_number || map.support_phone || "+91 98765 43210",
+      legalName: map.legal_name || "goWILD Karunadu Eco-Adventures Pvt Ltd",
+      gstin: map.gstin || map.company_gstin || "29AAGCW9123K1Z8",
+      address: map.address || map.company_address || "Forest Trailway Plaza, Indiranagar, Bengaluru, Karnataka 560038"
     };
   } catch (err) {
     return {
@@ -23,8 +26,11 @@ async function getBrandSettings() {
       brandSubtitle: "ಕರುನಾಡು",
       brandTagline: "Explore • Trek • Experience",
       supportPhone: "+91 98765 43210",
-      supportEmail: "info@gowildkarunadu.com",
-      legalName: "goWILD Karunadu Eco-Adventures Pvt Ltd"
+      supportEmail: "info@gowildkarunadu.online",
+      whatsappNumber: "+91 98765 43210",
+      legalName: "goWILD Karunadu Eco-Adventures Pvt Ltd",
+      gstin: "29AAGCW9123K1Z8",
+      address: "Forest Trailway Plaza, Indiranagar, Bengaluru, Karnataka 560038"
     };
   }
 }
@@ -502,12 +508,17 @@ function emailHeader(
 }
 
 function emailFooter(brand = {}) {
-  const supportEmail = brand.supportEmail || "info@gowildkarunadu.com";
+  const supportEmail = brand.supportEmail || "info@gowildkarunadu.online";
   const supportPhone = brand.supportPhone || "+91 98765 43210";
   const brandName = brand.brandName || "goWILD Karunadu";
+  const legalName = brand.legalName || "goWILD Karunadu Eco-Adventures Pvt Ltd";
+  const gstin = brand.gstin || "29AAGCW9123K1Z8";
+  const address = brand.address || "Bengaluru, Karnataka";
   return `
     <tr><td align="center" style="background:#f6f8f5;border-top:1px solid #e5eae5;padding:20px 25px;">
-      <div style="font-size:11px;color:#68746b;">${supportEmail} &nbsp;•&nbsp; ${supportPhone}</div>
+      <div style="font-size:11px;font-weight:bold;color:#354439;">${legalName} &nbsp;|&nbsp; GSTIN: ${gstin}</div>
+      <div style="font-size:11px;color:#68746b;margin-top:4px;">${address}</div>
+      <div style="font-size:11px;color:#68746b;margin-top:6px;">${supportEmail} &nbsp;•&nbsp; ${supportPhone}</div>
       <div style="font-size:10px;color:#98a199;margin-top:6px;">Support Hours: 9:00 AM – 6:00 PM (Mon–Sat)</div>
       <div style="font-size:10px;color:#a0a8a1;margin-top:12px;">© ${new Date().getFullYear()} ${brandName}. All rights reserved.</div>
     </td></tr>`;

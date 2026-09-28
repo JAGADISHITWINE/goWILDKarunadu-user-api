@@ -532,12 +532,18 @@ async function getReceiptById(req, res) {
     const sMap = {};
     for (const r of (settingRows || [])) sMap[r.setting_key] = r.setting_value;
     const rBrandName = sMap.brand_name || 'goWILD Karunadu';
-    const rSupportEmail = sMap.support_email || 'info@gowildkarunadu.com';
+    const rLegalName = sMap.legal_name || 'goWILD Karunadu Eco-Adventures Pvt Ltd';
+    const rGstin = sMap.gstin || sMap.company_gstin || '29AAGCW9123K1Z8';
+    const rAddress = sMap.address || sMap.company_address || 'Bengaluru, Karnataka, India';
+    const rSupportEmail = sMap.support_email || 'info@gowildkarunadu.online';
     const rSupportPhone = sMap.support_phone || '+91 98765 43210';
 
     doc.fontSize(8)
        .fillColor('#7f8c8d')
-       .text(`${rBrandName} | ${rSupportEmail} | ${rSupportPhone}`, { align: 'center' });
+       .text(`${rLegalName} | GSTIN: ${rGstin}`, { align: 'center' });
+    doc.text(`${rAddress}`, { align: 'center' });
+    doc.text(`${rSupportEmail} | ${rSupportPhone}`, { align: 'center' });
+    doc.moveDown(0.3);
     doc.text(`Thank you for choosing ${rBrandName}!`, { align: 'center' });
 
     // Finalize PDF
@@ -1314,7 +1320,7 @@ async function getTaxInvoiceController(req, res) {
         sacCode: '998555',
         kedbLicense: 'KEDB/ECO-TOUR/2024/089',
         address: invMap.address || 'Forest Trailway Plaza, Indiranagar, Bengaluru, Karnataka 560038',
-        supportEmail: invMap.support_email || 'info@gowildkarunadu.com',
+        supportEmail: invMap.support_email || 'info@gowildkarunadu.online',
         supportPhone: invMap.support_phone || '+91 98765 43210',
       },
       customer: {
