@@ -1,0 +1,24 @@
+{
+  "watch": [
+    "src",
+    "app.js",
+    "server.js"
+  ],
+  "ext": "js,json",
+  "delay": "250",
+  "ignore": [
+    "node_modules",
+    "uploads",
+    "shared-uploads",
+    "public",
+    "www",
+    "tmp",
+    "logs",
+    ".git",
+    ".vscode",
+    "**/*.log",
+    "**/*.tmp",
+    "**/*~",
+    "**/*.swp"
+  ]
+}

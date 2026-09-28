@@ -1,0 +1,18 @@
+# Node
+node_modules/
+
+# Angular
+dist/
+.angular/
+
+# Logs
+npm-debug.log*
+yarn-error.log*
+
+# Environment
+.env
+.env.production.example
+.env.example
+
+# OS
+.DS_Store
