@@ -31,13 +31,13 @@ router.post('/validate-reset-token', ctrl.validateResetToken);
 router.get('/dashData', trek.getDashboardData);
 
 // ========== WALLET ROUTES ==========
-router.get('/wallet', walletController.getWalletController);
-router.get('/wallet/:userId', walletController.getWalletController);
-router.post('/wallet/add-funds', walletController.addFundsController);
+router.get('/wallet', requireAuth, walletController.getWalletController);
+router.get('/wallet/:userId', requireAuth, walletController.getWalletController);
+router.post('/wallet/add-funds', requireAuth, walletController.addFundsController);
 
 // ========== COMMUNITY & CARPOOL ROUTES ==========
 router.get('/community/carpools', communityController.listCarpoolsController);
-router.post('/community/carpools', communityController.createCarpoolController);
+router.post('/community/carpools', requireAuth, communityController.createCarpoolController);
 
 // ========== META DROPDOWNS & OPERATIONS ==========
 router.get('/meta/dropdowns', metaController.getAllDropdowns);
@@ -52,19 +52,19 @@ router.get('/getTrekByUuid/:id', trek.getTrekById);
 router.get('/getAllTreks', trek.getAllTreks);
 
 // ========== BOOKING ROUTES ==========
-router.post('/booking', booking.createBookingController);
+router.post('/booking', requireAuth, booking.createBookingController);
 router.post('/coupon/validate', booking.validateCouponController);
 router.get('/coupons/trek/:trekId', booking.getAvailableCouponsController);
-router.get('/getMyBookingsById/:id', booking.getMyBookingsById);
-router.get('/bookings/:userId/:bookingId/receipt', booking.getReceiptById);
-router.post('/bookings/:userId/:bookingId/rating', booking.submitTrekRating);
-router.post('/bookings/:bookingId/cancel', booking.cancelBooking);
-router.post('/bookings/:bookingId/pay-remainder', booking.payRemainderController);
-router.get('/bookings/:bookingId/tax-invoice', booking.getTaxInvoiceController);
-router.get('/bookings/:bookingId/summit-certificate', booking.getSummitCertificateController);
+router.get('/getMyBookingsById/:id', requireAuth, booking.getMyBookingsById);
+router.get('/bookings/:userId/:bookingId/receipt', requireAuth, booking.getReceiptById);
+router.post('/bookings/:userId/:bookingId/rating', requireAuth, booking.submitTrekRating);
+router.post('/bookings/:bookingId/cancel', requireAuth, booking.cancelBooking);
+router.post('/bookings/:bookingId/pay-remainder', requireAuth, booking.payRemainderController);
+router.get('/bookings/:bookingId/tax-invoice', requireAuth, booking.getTaxInvoiceController);
+router.get('/bookings/:bookingId/summit-certificate', requireAuth, booking.getSummitCertificateController);
 router.post('/referrals/validate', referralController.validateReferralCode);
-router.get('/referrals/:userId/summary', referralController.getReferralSummary);
-router.get('/referrals/:userId/code', referralController.getOrCreateReferralCode);
+router.get('/referrals/:userId/summary', requireAuth, referralController.getReferralSummary);
+router.get('/referrals/:userId/code', requireAuth, referralController.getOrCreateReferralCode);
 
 // Public routes
 router.get('/blog/posts/related', blogController.getRelatedPosts);

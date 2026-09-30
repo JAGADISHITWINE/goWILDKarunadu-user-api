@@ -29,35 +29,14 @@ function resolveBatchId(rawId) {
   return String(candidate || '').trim() || null;
 }
 
-async function ensureTrekRatingsTable(conn) {
-  await conn.execute(`
-    CREATE TABLE IF NOT EXISTS trek_ratings (
-      id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      booking_id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      trek_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-      user_id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      rating TINYINT NOT NULL,
-      review TEXT,
-      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uniq_booking_rating (booking_id),
-      KEY idx_trek_id (trek_id),
-      KEY idx_user_id (user_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+async function ensureTrekRatingsTable() {
+  // Schema is managed by centralized migrations
+  return;
 }
 
-async function ensureTrekEngagementTable(conn) {
-  await conn.execute(`
-    CREATE TABLE IF NOT EXISTS trek_engagement (
-      trek_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-      total_views INT NOT NULL DEFAULT 0,
-      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (trek_id),
-      CONSTRAINT fk_trek_engagement_trek FOREIGN KEY (trek_id) REFERENCES treks(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+async function ensureTrekEngagementTable() {
+  // Schema is managed by centralized migrations
+  return;
 }
 
 

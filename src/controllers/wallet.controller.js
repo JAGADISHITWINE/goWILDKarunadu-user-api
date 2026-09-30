@@ -2,12 +2,23 @@ const walletService = require('../service/wallet.service');
 
 async function getWalletController(req, res) {
   try {
-    const userId = req.user?.id || req.params?.userId || req.query?.userId;
-    if (!userId) {
-      return res.status(400).json({ success: false, message: 'User ID is required' });
+    const authUserId = String(req.user?.id || '').trim();
+    let targetUserId = String(req.params?.userId || req.query?.userId || authUserId).trim();
+
+    if (!authUserId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
     }
 
-    const wallet = await walletService.getWallet(userId);
+    if (!targetUserId || targetUserId.toLowerCase() === 'me') {
+      targetUserId = authUserId;
+    }
+
+    // Only allow users to view their own wallet unless they possess administrative privileges
+    if (authUserId.toLowerCase() !== targetUserId.toLowerCase() && req.user?.type !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized to view this wallet' });
+    }
+
+    const wallet = await walletService.getWallet(targetUserId);
     return res.status(200).json({
       success: true,
       data: wallet,
@@ -23,7 +34,16 @@ async function getWalletController(req, res) {
 
 async function addFundsController(req, res) {
   try {
-    const userId = req.user?.id || req.body?.userId;
+    // Direct fund additions are strictly restricted to administrators or verified webhooks
+    const isAdmin = req.user?.type === 'admin' || req.user?.role === 'super_admin';
+    if (!isAdmin) {
+      return res.status(403).json({
+        success: false,
+        message: 'Direct fund credits are restricted to administrative authorization or verified payment webhooks.',
+      });
+    }
+
+    const userId = req.body?.userId || req.user?.id;
     const amount = parseFloat(req.body?.amount || 0);
 
     if (!userId || amount <= 0) {
@@ -57,3 +77,4 @@ module.exports = {
   getWalletController,
   addFundsController,
 };
+

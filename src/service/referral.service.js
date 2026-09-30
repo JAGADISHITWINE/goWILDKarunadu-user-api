@@ -57,37 +57,8 @@ function mapSettingsRow(row) {
 }
 
 async function ensureReferralSettingsTable() {
-  await db.query(`
-    CREATE TABLE IF NOT EXISTS ${REFERRAL_SETTINGS_TABLE} (
-      id CHAR(36) NOT NULL PRIMARY KEY,
-      base_discount DECIMAL(10,2) NOT NULL DEFAULT 0,
-      bonus_discount DECIMAL(10,2) NOT NULL DEFAULT 0,
-      bonus_participant_threshold INT NOT NULL DEFAULT 0,
-      free_slot_threshold INT NOT NULL DEFAULT 0,
-      free_slot_value INT NOT NULL DEFAULT 0,
-      is_enabled TINYINT(1) NOT NULL DEFAULT 1,
-      updated_by CHAR(36) NULL,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4
-  `);
-
-  const [[row]] = await db.query(`SELECT COUNT(*) AS total FROM ${REFERRAL_SETTINGS_TABLE}`);
-  if (!Number(row?.total)) {
-    await db.query(
-      `INSERT INTO ${REFERRAL_SETTINGS_TABLE}
-        (id, base_discount, bonus_discount, bonus_participant_threshold, free_slot_threshold, free_slot_value, is_enabled)
-       VALUES (?, ?, ?, ?, ?, ?, 1)`,
-      [
-        createUuid(),
-        DEFAULT_REFERRAL_CONFIG.baseDiscount,
-        DEFAULT_REFERRAL_CONFIG.bonusDiscount,
-        DEFAULT_REFERRAL_CONFIG.bonusParticipantThreshold,
-        DEFAULT_REFERRAL_CONFIG.freeSlotThreshold,
-        DEFAULT_REFERRAL_CONFIG.freeSlotValue,
-      ]
-    );
-  }
+  // Schema is verified and managed by centralized migration runner (013-create-referral-schema.sql)
+  return;
 }
 
 async function getReferralConfig(forceRefresh = false) {
@@ -110,74 +81,8 @@ async function getReferralConfig(forceRefresh = false) {
 }
 
 async function ensureReferralSchema() {
-  if (schemaReady) {
-    return;
-  }
-
-  await ensureReferralSettingsTable();
-
-  const safeAlter = async (sql) => {
-    try {
-      await db.query(sql);
-    } catch (error) {
-      if (["ER_DUP_FIELDNAME", "ER_DUP_KEYNAME", "ER_TABLE_EXISTS_ERROR"].includes(error?.code)) {
-        return;
-      }
-      throw error;
-    }
-  };
-
-  await safeAlter(`ALTER TABLE users ADD COLUMN referral_code VARCHAR(16) NULL`);
-  await safeAlter(`ALTER TABLE users ADD UNIQUE KEY uq_users_referral_code (referral_code)`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN referred_by_user_id CHAR(36) NULL`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN referral_success_count INT NOT NULL DEFAULT 0`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN referral_total_discount DECIMAL(10,2) NOT NULL DEFAULT 0`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN referral_free_slots_available INT NOT NULL DEFAULT 0`);
-  await safeAlter(`ALTER TABLE users ADD COLUMN referral_free_slots_redeemed INT NOT NULL DEFAULT 0`);
-
-  await db.query(
-    `CREATE TABLE IF NOT EXISTS booking_referrals (
-      id CHAR(36) NOT NULL PRIMARY KEY,
-      booking_id CHAR(36) NOT NULL,
-      referrer_user_id CHAR(36) NOT NULL,
-      referred_user_id CHAR(36) NOT NULL,
-      referral_code VARCHAR(16) NOT NULL,
-      discount_amount DECIMAL(10,2) NOT NULL DEFAULT 0,
-      participants INT NOT NULL DEFAULT 0,
-      status ENUM('pending','cancelled') NOT NULL DEFAULT 'pending',
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_booking_referrals_booking (booking_id),
-      KEY idx_booking_referrals_referrer (referrer_user_id),
-      KEY idx_booking_referrals_referred (referred_user_id),
-      CONSTRAINT fk_booking_referrals_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
-      CONSTRAINT fk_booking_referrals_referrer FOREIGN KEY (referrer_user_id) REFERENCES users(id) ON DELETE CASCADE,
-      CONSTRAINT fk_booking_referrals_referred FOREIGN KEY (referred_user_id) REFERENCES users(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-  );
-
-  await db.query(
-    `CREATE TABLE IF NOT EXISTS referral_reward_redemptions (
-      id CHAR(36) NOT NULL PRIMARY KEY,
-      user_id CHAR(36) NOT NULL,
-      booking_id CHAR(36) NOT NULL,
-      slots_used INT NOT NULL DEFAULT 0,
-      value_per_slot DECIMAL(10,2) NOT NULL DEFAULT 0,
-      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-      UNIQUE KEY uq_referral_reward_booking (booking_id),
-      KEY idx_referral_reward_user (user_id),
-      CONSTRAINT fk_referral_reward_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-      CONSTRAINT fk_referral_reward_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4`
-  );
-
-  await safeAlter(`ALTER TABLE bookings ADD COLUMN referral_code VARCHAR(16) NULL`);
-  await safeAlter(`ALTER TABLE bookings ADD COLUMN referral_discount DECIMAL(10,2) NOT NULL DEFAULT 0`);
-  await safeAlter(`ALTER TABLE bookings ADD COLUMN referral_reward_discount DECIMAL(10,2) NOT NULL DEFAULT 0`);
-  await safeAlter(`ALTER TABLE bookings ADD COLUMN referral_reward_slots_used INT NOT NULL DEFAULT 0`);
-
-  await assignCodesForExistingUsers();
-  schemaReady = true;
+  // Schema is verified and managed by centralized migration runner (013-create-referral-schema.sql)
+  return;
 }
 
 async function assignCodesForExistingUsers() {
@@ -481,6 +386,11 @@ async function getReferralSummary(userId) {
   );
   if (!userRow) {
     return null;
+  }
+
+  if (!userRow.referral_code) {
+    const generatedCode = await ensureReferralCodeForUser(userId);
+    userRow.referral_code = generatedCode;
   }
 
   const [recentReferrals] = await db.query(

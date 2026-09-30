@@ -9,25 +9,8 @@ const emailService = require("../service/emailService"); // Email service
 const referralService = require("../service/referral.service");
 
 async function ensureTrekRatingsTable(conn) {
-  await conn.execute(`
-    CREATE TABLE IF NOT EXISTS trek_ratings (
-      id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      booking_id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      trek_id CHAR(36) COLLATE utf8mb4_unicode_ci NOT NULL,
-      user_id CHAR(36) COLLATE utf8mb4_0900_ai_ci NOT NULL,
-      rating TINYINT NOT NULL,
-      review TEXT,
-      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      UNIQUE KEY uniq_booking_rating (booking_id),
-      KEY idx_trek_id (trek_id),
-      KEY idx_user_id (user_id),
-      CONSTRAINT fk_trek_ratings_booking FOREIGN KEY (booking_id) REFERENCES bookings(id) ON DELETE CASCADE,
-      CONSTRAINT fk_trek_ratings_trek FOREIGN KEY (trek_id) REFERENCES treks(id) ON DELETE CASCADE,
-      CONSTRAINT fk_trek_ratings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+  // Schema is verified and managed by centralized migration runner (008-create-trek-ratings-engagement.sql)
+  return;
 }
 
 function normalizeCouponCode(code = "") {
@@ -53,7 +36,16 @@ function isExpectedCreateBookingMessage(message = "") {
 
 async function createBookingController(req, res) {
   try {
-    const bookingData = decrypt(req.body.encryptedPayload);
+    const bookingData = decrypt(req.body.encryptedPayload) || req.body;
+    if (!bookingData) {
+      return res.status(400).json({ success: false, message: "Invalid booking payload" });
+    }
+
+    // Bind authenticated user ID to ensure bookings cannot be forged or anonymized
+    if (req.user?.id) {
+      bookingData.userId = req.user.id;
+    }
+
     const result = await createBooking.createBooking(bookingData);
     const encryptedResponse = encrypt(result);
 
@@ -74,11 +66,22 @@ async function createBookingController(req, res) {
 }
 
 async function getMyBookingsById(req, res) {
-  const conn = await db.getConnection();
   const userId = String(req.params.id || '').trim();
-  
+  if (!userId) {
+    return res.status(400).json({ success: false, message: "User ID is required" });
+  }
+
+  // Authorization check: User can only access their own bookings unless admin
+  if (req.user && req.user.id !== userId && req.user.type !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized to view these bookings"
+    });
+  }
+
+  let conn;
   try {
-    await ensureTrekRatingsTable(conn);
+    conn = await db.getConnection();
 
     const [bookings] = await conn.execute(
       `
@@ -97,7 +100,7 @@ async function getMyBookingsById(req, res) {
           tb.duration,
           DATEDIFF(tb.start_date, NOW()) as days_until_trek
         FROM bookings b
-        INNER JOIN trek_batches tb ON b.batch_id COLLATE utf8mb4_unicode_ci = tb.id
+        INNER JOIN trek_batches tb ON b.batch_id = tb.id
         INNER JOIN treks t ON tb.trek_id = t.id
         LEFT JOIN trek_ratings tr
           ON tr.booking_id = b.id
@@ -157,8 +160,6 @@ async function getMyBookingsById(req, res) {
           booking.booking_status === "confirmed");
     }
 
-    conn.release();
-
     const response = {
       count: bookings.length,
       bookings: bookings,
@@ -171,25 +172,32 @@ async function getMyBookingsById(req, res) {
       data: encryptedResponse,
     });
   } catch (error) {
-    conn.release();
     return res.status(500).json({
       success: false,
       message: "Failed to fetch bookings",
       error: error.message,
     });
+  } finally {
+    if (conn) conn.release();
   }
 }
 
 async function getReceiptById(req, res) {
+  const userId = req.params.userId;
+  const bookingId = req.params.bookingId;
+
+  if (req.user && req.user.id !== userId && req.user.type !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: 'Unauthorized to view this receipt'
+    });
+  }
+
   let conn;
   
   try {
     conn = await db.getConnection();
-    await referralService.ensureReferralSchema();
     
-    const userId = req.params.userId;
-    const bookingId = req.params.bookingId;
-
     const [bookings] = await conn.execute(`
       SELECT 
         b.*,
@@ -201,7 +209,7 @@ async function getReceiptById(req, res) {
         u.full_name as user_name,
         u.email as user_email
       FROM bookings b
-        INNER JOIN trek_batches tb ON b.batch_id COLLATE utf8mb4_unicode_ci = tb.id
+        INNER JOIN trek_batches tb ON b.batch_id = tb.id
       INNER JOIN treks t ON tb.trek_id = t.id
       INNER JOIN users u ON b.user_id = u.id
       WHERE b.id = ? AND b.user_id = ?
@@ -567,14 +575,20 @@ async function getReceiptById(req, res) {
 async function cancelBooking(req, res) {
   let conn;
 
-
   try {
-    conn = await db.getConnection();
-    const cancelBookingData = decrypt(req.body.encryptedPayload);
+    const cancelBookingData = decrypt(req.body.encryptedPayload) || req.body || {};
 
     const bookingId = String(req.params.bookingId || '').trim();
-    const userId = String(cancelBookingData.userId || '').trim();
+    const userId = req.user?.id || String(cancelBookingData.userId || '').trim();
     const { reason, acceptedTerms } = cancelBookingData;
+
+    // Check authorization: prevent cancelling another user's booking
+    if (req.user && cancelBookingData.userId && req.user.id !== cancelBookingData.userId && req.user.type !== 'admin') {
+      return res.status(403).json({
+        success: false,
+        message: "Unauthorized to cancel another user's booking"
+      });
+    }
 
     // ===============================
     // 1️⃣ BASIC VALIDATION
@@ -600,7 +614,7 @@ async function cancelBooking(req, res) {
       });
     }
 
-    await referralService.ensureReferralSchema();
+    conn = await db.getConnection();
     await conn.beginTransaction();
 
     // ===============================
@@ -613,7 +627,7 @@ async function cancelBooking(req, res) {
         tb.start_date,
         DATEDIFF(tb.start_date, NOW()) AS days_until_trek
       FROM bookings b
-      INNER JOIN trek_batches tb ON b.batch_id COLLATE utf8mb4_unicode_ci = tb.id
+      INNER JOIN trek_batches tb ON b.batch_id = tb.id
       WHERE b.id = ? AND b.user_id = ?
       FOR UPDATE
     `, [bookingId, userId]);
@@ -843,29 +857,34 @@ async function cancelBooking(req, res) {
     if (conn) {
       try {
         await conn.rollback();
-        conn.release();
       } catch (err) {
       }
     }
-
 
     return res.status(500).json({
       success: false,
       message: "Failed to cancel booking",
       error: error.message
     });
+  } finally {
+    if (conn) conn.release();
   }
 }
 
 async function submitTrekRating(req, res) {
+  const bookingId = String(req.params.bookingId || '').trim();
+  const userId = String(req.params.userId || '').trim();
+
+  if (req.user && req.user.id !== userId && req.user.type !== 'admin') {
+    return res.status(403).json({
+      success: false,
+      message: "Unauthorized to submit rating for another user"
+    });
+  }
+
   let conn;
 
   try {
-    conn = await db.getConnection();
-    await ensureTrekRatingsTable(conn);
-
-    const bookingId = String(req.params.bookingId || '').trim();
-    const userId = String(req.params.userId || '').trim();
     const decryptedBody = req.body?.encryptedPayload
       ? decrypt(req.body.encryptedPayload)
       : null;
@@ -889,6 +908,8 @@ async function submitTrekRating(req, res) {
       });
     }
 
+    conn = await db.getConnection();
+
     const [rows] = await conn.execute(
       `
         SELECT
@@ -898,7 +919,7 @@ async function submitTrekRating(req, res) {
           b.booking_status,
           tb.end_date
         FROM bookings b
-        INNER JOIN trek_batches tb ON tb.id = b.batch_id COLLATE utf8mb4_unicode_ci
+        INNER JOIN trek_batches tb ON tb.id = b.batch_id
         WHERE b.id = ? AND b.user_id = ?
         LIMIT 1
       `,
@@ -1215,22 +1236,28 @@ async function getAvailableCouponsController(req, res) {
 }
 
 async function payRemainderController(req, res) {
-  const conn = await db.getConnection();
+  let conn;
   try {
     const bookingId = String(req.params.bookingId || '').trim();
     const { paymentMethod = 'UPI Online', transactionId } = req.body;
 
+    conn = await db.getConnection();
     const [rows] = await conn.execute(
       'SELECT * FROM bookings WHERE id = ?',
       [bookingId]
     );
 
     if (rows.length === 0) {
-      conn.release();
       return res.status(404).json({ success: false, message: 'Booking not found' });
     }
 
     const booking = rows[0];
+
+    // Authorization check
+    if (req.user && booking.user_id !== req.user.id && req.user.type !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized to pay remainder for this booking' });
+    }
+
     const totalAmount = parseFloat(booking.total_amount || 0);
     const remainderDue = parseFloat(booking.balance_due || (totalAmount - parseFloat(booking.amount_paid || 0)));
 
@@ -1254,8 +1281,6 @@ async function payRemainderController(req, res) {
       VALUES (?, ?, ?, 'completed', ?, ?, NOW())
     `, [createUuid(), bookingId, remainderDue, paymentMethod, txId]).catch(() => {});
 
-    conn.release();
-
     return res.status(200).json({
       success: true,
       message: 'Remainder payment settled successfully. Booking is fully confirmed!',
@@ -1267,8 +1292,9 @@ async function payRemainderController(req, res) {
       },
     });
   } catch (error) {
-    if (conn) conn.release();
     return res.status(500).json({ success: false, message: 'Failed to settle remainder payment', error: error.message });
+  } finally {
+    if (conn) conn.release();
   }
 }
 
@@ -1295,6 +1321,12 @@ async function getTaxInvoiceController(req, res) {
     }
 
     const booking = rows[0];
+
+    // Authorization check
+    if (req.user && booking.user_id !== req.user.id && req.user.type !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized to access this tax invoice' });
+    }
+
     const participants = parseInt(booking.participants || 1);
     const totalAmount = parseFloat(booking.total_amount || 0);
     const subtotal = parseFloat(booking.subtotal || (totalAmount / 1.05));
@@ -1399,6 +1431,11 @@ async function getSummitCertificateController(req, res) {
     }
 
     const booking = rows[0];
+
+    // Authorization check
+    if (req.user && booking.user_id !== req.user.id && req.user.type !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Unauthorized to access this certificate' });
+    }
     const trekName = booking.trek_name || 'Western Ghats Peak';
 
     // Elevation dictionary fallback

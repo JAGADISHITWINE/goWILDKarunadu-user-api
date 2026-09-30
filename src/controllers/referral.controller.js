@@ -3,13 +3,20 @@ const { encrypt, decrypt } = require("../service/cryptoHelper");
 
 async function getReferralSummary(req, res) {
   try {
-    const userId = String(req.params.userId || '').trim();
-    if (!userId) {
+    let rawUserId = String(req.params.userId || '').trim();
+    if (!rawUserId) {
+      rawUserId = req.user?.id || '';
+    }
+    const targetUserId = (rawUserId.toLowerCase() === 'me' ? req.user?.id : rawUserId) || req.user?.id;
+    if (!targetUserId) {
       return res.status(400).json({ success: false, message: "Valid userId is required" });
     }
 
-    await referralService.ensureReferralSchema();
-    const summary = await referralService.getReferralSummary(userId);
+    if (req.user && String(req.user.id).trim().toLowerCase() !== String(targetUserId).trim().toLowerCase() && req.user.type !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to access this referral summary" });
+    }
+
+    const summary = await referralService.getReferralSummary(targetUserId);
     if (!summary) {
       return res.status(404).json({ success: false, message: "User not found" });
     }
@@ -23,10 +30,9 @@ async function getReferralSummary(req, res) {
 
 async function validateReferralCode(req, res) {
   try {
-    await referralService.ensureReferralSchema();
     const payload = req.body?.encryptedPayload ? decrypt(req.body.encryptedPayload) : req.body;
     const referralCode = payload?.referralCode || payload?.code;
-    const userId = String(payload?.userId || '').trim();
+    const userId = String(payload?.userId || req.user?.id || '').trim();
     const participants = Number(payload?.participants || 0);
 
     const result = await referralService.validateReferralCode({
@@ -44,12 +50,20 @@ async function validateReferralCode(req, res) {
 
 async function getOrCreateReferralCode(req, res) {
   try {
-    const userId = String(req.params.userId || '').trim();
-    if (!userId) {
+    let rawUserId = String(req.params.userId || '').trim();
+    if (!rawUserId) {
+      rawUserId = req.user?.id || '';
+    }
+    const targetUserId = (rawUserId.toLowerCase() === 'me' ? req.user?.id : rawUserId) || req.user?.id;
+    if (!targetUserId) {
       return res.status(400).json({ success: false, message: "Valid userId is required" });
     }
-    await referralService.ensureReferralSchema();
-    const code = await referralService.ensureReferralCodeForUser(userId);
+
+    if (req.user && String(req.user.id).trim().toLowerCase() !== String(targetUserId).trim().toLowerCase() && req.user.type !== 'admin') {
+      return res.status(403).json({ success: false, message: "Unauthorized to generate referral code for another user" });
+    }
+
+    const code = await referralService.ensureReferralCodeForUser(targetUserId);
     const encryptedResponse = encrypt({ referralCode: code });
     return res.status(200).json({ success: true, data: encryptedResponse });
   } catch (error) {

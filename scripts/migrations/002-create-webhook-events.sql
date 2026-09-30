@@ -7,4 +7,4 @@ CREATE TABLE IF NOT EXISTS webhook_events (
   PRIMARY KEY (id),
   UNIQUE KEY uq_event_id (event_id),
   UNIQUE KEY uq_payload_hash (payload_hash)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;

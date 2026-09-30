@@ -10,30 +10,14 @@ function getRzpInstance() {
   return new Razorpay({ key_id, key_secret });
 }
 
-async function ensurePaymentsTable(conn) {
-  await conn.execute(`
-    CREATE TABLE IF NOT EXISTS payments (
-      id CHAR(36) NOT NULL,
-      order_id VARCHAR(128) DEFAULT NULL,
-      payment_id VARCHAR(128) DEFAULT NULL,
-      receipt VARCHAR(128) DEFAULT NULL,
-      booking_id CHAR(36) DEFAULT NULL,
-      user_id CHAR(36) DEFAULT NULL,
-      amount BIGINT DEFAULT 0,
-      currency VARCHAR(8) DEFAULT 'INR',
-      status VARCHAR(32) DEFAULT 'created',
-      meta JSON DEFAULT NULL,
-      created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-      updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-      PRIMARY KEY (id),
-      KEY idx_order_id (order_id),
-      KEY idx_booking_id (booking_id)
-    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-  `);
+async function ensurePaymentsTable() {
+  // Schema is managed by centralized migrations
+  return;
 }
 
 // POST /api/auth/payments/create-order
 async function createOrder(req, res) {
+  let conn;
   try {
     const { amount, currency = 'INR', receipt, bookingId, userId } = req.body;
     if (!amount || amount <= 0) return res.status(400).json({ success: false, message: 'Invalid amount' });
@@ -44,23 +28,24 @@ async function createOrder(req, res) {
     const amountPaise = Math.round(Number(amount) * 100);
     const rzpOrder = await rzp.orders.create({ amount: amountPaise, currency, receipt: receipt || `rcpt_${Date.now()}`, payment_capture: 1 });
 
-    const conn = await db.getConnection();
-    await ensurePaymentsTable(conn);
+    conn = await db.getConnection();
     const id = createUuid();
     await conn.execute(
       `INSERT INTO payments (id, order_id, receipt, booking_id, user_id, amount, currency, status) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [id, rzpOrder.id, rzpOrder.receipt, bookingId || null, userId || null, amountPaise, currency, 'created']
     );
-    conn.release();
 
     return res.json({ success: true, data: { order: rzpOrder } });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to create order', error: error.message });
+  } finally {
+    if (conn) conn.release();
   }
 }
 
 // POST /api/auth/payments/verify
 async function verifyPayment(req, res) {
+  let conn;
   try {
     const { order_id, payment_id, signature, bookingId } = req.body;
     if (!order_id || !payment_id || !signature) return res.status(400).json({ success: false, message: 'Missing parameters' });
@@ -72,8 +57,7 @@ async function verifyPayment(req, res) {
       return res.status(400).json({ success: false, message: 'Invalid signature' });
     }
 
-    const conn = await db.getConnection();
-    await ensurePaymentsTable(conn);
+    conn = await db.getConnection();
     await conn.execute(`UPDATE payments SET payment_id = ?, status = 'paid', updated_at = NOW() WHERE order_id = ?`, [payment_id, order_id]);
 
     // Optionally update booking status (if bookingId provided)
@@ -102,11 +86,11 @@ async function verifyPayment(req, res) {
     } catch (err) {
     }
 
-    conn.release();
-
     return res.json({ success: true, message: 'Payment verified' });
   } catch (error) {
     return res.status(500).json({ success: false, message: 'Failed to verify payment', error: error.message });
+  } finally {
+    if (conn) conn.release();
   }
 }
 
@@ -126,23 +110,10 @@ async function webhookHandler(req, res) {
     }
 
     conn = await db.getConnection();
-    await ensurePaymentsTable(conn);
 
     // Idempotency: compute payload hash and skip if already processed
     const payloadHash = crypto.createHash('sha256').update(payload).digest('hex');
     try {
-      await conn.execute(`
-        CREATE TABLE IF NOT EXISTS webhook_events (
-          id CHAR(36) NOT NULL,
-          event_id VARCHAR(255) NOT NULL,
-          payload_hash VARCHAR(128) NOT NULL,
-          created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-          PRIMARY KEY (id),
-          UNIQUE KEY uq_event_id (event_id),
-          UNIQUE KEY uq_payload_hash (payload_hash)
-        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-      `);
-
       const eventId = (req.body && req.body.id) || (req.headers['x-razorpay-event-id'] || null);
       if (eventId) {
         const [existing] = await conn.execute(`SELECT id FROM webhook_events WHERE event_id = ? LIMIT 1`, [eventId]);

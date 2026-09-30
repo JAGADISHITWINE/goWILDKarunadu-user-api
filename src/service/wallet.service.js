@@ -1,38 +1,9 @@
 const db = require('../config/db');
 const { createUuid } = require('../utils/id');
 
-async function ensureWalletSchema(conn) {
-  const connection = conn || (await db.getConnection());
-  try {
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS user_wallets (
-        user_id CHAR(36) NOT NULL,
-        balance DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        bonus_balance DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        currency VARCHAR(10) NOT NULL DEFAULT 'INR',
-        updated_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (user_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-
-    await connection.query(`
-      CREATE TABLE IF NOT EXISTS wallet_transactions (
-        id CHAR(36) NOT NULL,
-        user_id CHAR(36) NOT NULL,
-        amount DECIMAL(10,2) NOT NULL,
-        bonus_amount DECIMAL(10,2) NOT NULL DEFAULT 0.00,
-        transaction_type ENUM('credit', 'debit') NOT NULL,
-        reason VARCHAR(255) NOT NULL,
-        reference_id VARCHAR(100) NULL,
-        created_at TIMESTAMP NULL DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_user_id (user_id)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
-    `);
-  } catch (err) {
-  } finally {
-    if (!conn) connection.release();
-  }
+async function ensureWalletSchema() {
+  // Schema is verified and managed by centralized migration scripts
+  return;
 }
 
 async function getWallet(userId) {

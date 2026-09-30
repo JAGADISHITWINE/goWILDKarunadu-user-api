@@ -15,4 +15,4 @@ CREATE TABLE IF NOT EXISTS payments (
   PRIMARY KEY (id),
   KEY idx_order_id (order_id),
   KEY idx_booking_id (booking_id)
-) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_0900_ai_ci;
